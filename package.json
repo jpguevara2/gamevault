@@ -1,0 +1,18 @@
+{
+  "name": "gamevault",
+  "version": "1.0.0",
+  "description": "Gestor de colección de videojuegos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "sql.js": "^1.10.3",
+    "bcryptjs": "^2.4.3",
+    "express-session": "^1.17.3",
+    "passport": "^0.6.0",
+    "passport-local": "^1.0.0",
+    "passport-google-oauth20": "^2.0.0"
+  }
+}
