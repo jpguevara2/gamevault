@@ -96,6 +96,13 @@ function safeEmail(email) {
   return String(email || '').trim().toLowerCase().replace(/[^a-z0-9@._+\-]/gi, '');
 }
 
+// Valida que un ID (de req.params o req.body) sea un entero seguro para interpolar en SQL.
+// Devuelve el entero, o null si no es válido.
+function toId(v) {
+  const n = parseInt(v, 10);
+  return Number.isInteger(n) && String(n) === String(v).trim() ? n : null;
+}
+
 // ── Rate limiting (login) ────────────────────────────────────
 const loginAttempts = new Map(); // ip -> { count, resetAt }
 function checkRateLimit(ip) {
@@ -276,7 +283,7 @@ app.post('/api/amigos/solicitar', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const { receptor_id } = req.body;
+    const receptor_id = toId(req.body.receptor_id);
     if (!receptor_id || receptor_id == uid) return res.status(400).json({ error: 'ID inválido' });
     const existe = get(db, `SELECT id FROM amistad WHERE (solicitante=${uid} AND receptor=${receptor_id}) OR (solicitante=${receptor_id} AND receptor=${uid})`);
     if (existe) return res.status(400).json({ error: 'Ya existe una solicitud o amistad con este usuario' });
@@ -290,7 +297,9 @@ app.post('/api/amigos/responder', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const { amistad_id, accion } = req.body;
+    const amistad_id = toId(req.body.amistad_id);
+    const accion     = req.body.accion;
+    if (!amistad_id) return res.status(400).json({ error: 'ID inválido' });
     const sol = get(db, `SELECT * FROM amistad WHERE id=${amistad_id} AND receptor=${uid} AND estado='pendiente'`);
     if (!sol) return res.status(404).json({ error: 'Solicitud no encontrada' });
     if (accion === 'aceptar') {
@@ -310,7 +319,8 @@ app.delete('/api/amigos/:amigo_id', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const aid = req.params.amigo_id;
+    const aid = toId(req.params.amigo_id);
+    if (!aid) return res.status(400).json({ error: 'ID inválido' });
     run(db, `DELETE FROM amistad WHERE (solicitante=${uid} AND receptor=${aid}) OR (solicitante=${aid} AND receptor=${uid})`);
     run(db, `DELETE FROM privacidad_amigo WHERE (usuario_id=${uid} AND amigo_id=${aid}) OR (usuario_id=${aid} AND amigo_id=${uid})`);
     res.json({ ok: true });
@@ -339,7 +349,8 @@ app.get('/api/amigos/:amigo_id/privacidad', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const aid = req.params.amigo_id;
+    const aid = toId(req.params.amigo_id);
+    if (!aid) return res.status(400).json({ error: 'ID inválido' });
     const priv = get(db, `SELECT * FROM privacidad_amigo WHERE usuario_id=${uid} AND amigo_id=${aid}`);
     res.json(priv || { ver_coleccion:1, ver_jugando:1, ver_buscados:1 });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -349,7 +360,8 @@ app.put('/api/amigos/:amigo_id/privacidad', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const aid = req.params.amigo_id;
+    const aid = toId(req.params.amigo_id);
+    if (!aid) return res.status(400).json({ error: 'ID inválido' });
     const { ver_coleccion, ver_jugando, ver_buscados } = req.body;
     const vc = ver_coleccion ? 1 : 0;
     const vj = ver_jugando ? 1 : 0;
@@ -365,7 +377,8 @@ app.get('/api/amigos/:amigo_id/coleccion', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const aid = req.params.amigo_id;
+    const aid = toId(req.params.amigo_id);
+    if (!aid) return res.status(400).json({ error: 'ID inválido' });
     // Verificar que son amigos
     const amistad = get(db, `SELECT * FROM amistad WHERE estado='aceptada' AND ((solicitante=${uid} AND receptor=${aid}) OR (solicitante=${aid} AND receptor=${uid}))`);
     if (!amistad) return res.status(403).json({ error: 'No son amigos' });
@@ -428,11 +441,11 @@ app.post('/api/backup/restore', requireAuth, async (req, res) => {
     for (const g of juegos) {
       if (!g.nombre) continue;
       const pos = g.posesion === 'buscado' ? 'buscado' : 'coleccion';
-      run(db, `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido)
+      run(db, `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad)
         VALUES (${uid}, ${esc(String(g.nombre).trim())}, ${esc(g.plataforma||null)}, ${esc(g.desarrolladora||null)},
           ${g.anio ? parseInt(g.anio) : 'NULL'}, ${esc(g.genero||null)}, ${esc(g.clasificacion||null)},
-          ${esc(g.num_jugadores||null)}, ${esc(g.estado||'pendiente')}, ${esc(pos)},
-          ${esc(g.region||null)}, ${esc(g.contenido||null)})`);
+          ${esc(g.num_jugadores||null)}, ${esc(g.estado||'no terminado')}, ${esc(pos)},
+          ${esc(g.region||null)}, ${esc(g.contenido||null)}, ${esc(g.exclusividad||null)})`);
       ok++;
     }
     res.json({ ok: true, importados: ok });
@@ -486,13 +499,13 @@ app.post('/api/juegos', requireAuth, async (req, res) => {
   try {
     const db  = await getDb();
     const uid = req.user.id;
-    const { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido } = req.body;
+    const { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad } = req.body;
     if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
     const pos = (posesion === 'buscado') ? 'buscado' : 'coleccion';
-    const sql = `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido)
+    const sql = `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad)
       VALUES (${uid}, ${esc(String(nombre).trim())}, ${esc(plataforma||null)}, ${esc(desarrolladora||null)},
         ${anio ? parseInt(anio) : 'NULL'}, ${esc(genero||null)}, ${esc(clasificacion||null)},
-        ${esc(num_jugadores||null)}, ${esc(estado||'pendiente')}, ${esc(pos)}, ${esc(region||null)}, ${esc(contenido||null)})`;
+        ${esc(num_jugadores||null)}, ${esc(estado||'no terminado')}, ${esc(pos)}, ${esc(region||null)}, ${esc(contenido||null)}, ${esc(exclusividad||null)})`;
     const result = run(db, sql);
     res.status(201).json(get(db, `SELECT * FROM juego WHERE id = ${result.lastInsertRowid}`));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -503,7 +516,7 @@ app.put('/api/juegos/:id', requireAuth, async (req, res) => {
     const db    = await getDb();
     const juego = get(db, `SELECT * FROM juego WHERE id = ${esc(req.params.id)} AND usuario_id = ${req.user.id}`);
     if (!juego) return res.status(404).json({ error: 'Juego no encontrado' });
-    const { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, region, contenido } = req.body;
+    const { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, region, contenido, exclusividad } = req.body;
     if (nombre !== undefined && !String(nombre).trim()) return res.status(400).json({ error: 'El nombre no puede estar vacío' });
     const v = (val, fb) => val !== undefined ? val : fb;
     run(db, `UPDATE juego SET
@@ -512,7 +525,8 @@ app.put('/api/juegos/:id', requireAuth, async (req, res) => {
       anio=${v(anio,juego.anio) ? parseInt(v(anio,juego.anio)) : 'NULL'},
       genero=${esc(v(genero,juego.genero))}, clasificacion=${esc(v(clasificacion,juego.clasificacion))},
       num_jugadores=${esc(v(num_jugadores,juego.num_jugadores))}, estado=${esc(v(estado,juego.estado))},
-      region=${esc(v(region,juego.region))}, contenido=${esc(v(contenido,juego.contenido))}
+      region=${esc(v(region,juego.region))}, contenido=${esc(v(contenido,juego.contenido))},
+      exclusividad=${esc(v(exclusividad,juego.exclusividad))}
       WHERE id = ${esc(req.params.id)} AND usuario_id = ${req.user.id}`);
     res.json(get(db, `SELECT * FROM juego WHERE id = ${esc(req.params.id)}`));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -535,9 +549,9 @@ app.get('/api/stats', requireAuth, async (req, res) => {
     const n   = (sql) => (get(db, sql) || { n: 0 }).n;
     res.json({
       total:      n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND posesion='coleccion'`),
-      completado: n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND LOWER(TRIM(estado))='completado' AND posesion='coleccion'`),
+      completado: n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND LOWER(TRIM(estado))='terminado' AND posesion='coleccion'`),
       jugando:    n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND LOWER(TRIM(estado))='jugando' AND posesion='coleccion'`),
-      pendiente:  n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND LOWER(TRIM(estado))='pendiente' AND posesion='coleccion'`),
+      pendiente:  n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND LOWER(TRIM(estado))='no terminado' AND posesion='coleccion'`),
       buscados:   n(`SELECT COUNT(*) as n FROM juego WHERE usuario_id=${uid} AND posesion='buscado'`),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

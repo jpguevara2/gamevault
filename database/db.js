@@ -36,7 +36,7 @@ async function getDb() {
       genero         TEXT,
       clasificacion  TEXT,
       num_jugadores  TEXT,
-      estado         TEXT NOT NULL DEFAULT 'pendiente',
+      estado         TEXT NOT NULL DEFAULT 'no terminado',
       posesion       TEXT NOT NULL DEFAULT 'coleccion',
       region         TEXT,
       contenido      TEXT,
@@ -70,9 +70,10 @@ async function getDb() {
   // Migraciones
   const cols = _exec(_db, 'PRAGMA table_info(juego)');
   const jMigs = [
-    ['region',     'ALTER TABLE juego ADD COLUMN region TEXT'],
-    ['contenido',  'ALTER TABLE juego ADD COLUMN contenido TEXT'],
-    ['usuario_id', 'ALTER TABLE juego ADD COLUMN usuario_id INTEGER'],
+    ['region',       'ALTER TABLE juego ADD COLUMN region TEXT'],
+    ['contenido',    'ALTER TABLE juego ADD COLUMN contenido TEXT'],
+    ['usuario_id',   'ALTER TABLE juego ADD COLUMN usuario_id INTEGER'],
+    ['exclusividad', 'ALTER TABLE juego ADD COLUMN exclusividad TEXT'],
   ];
   jMigs.forEach(([col, sql]) => {
     if (cols.length && !cols.find(c => c.name === col)) _db.run(sql);
@@ -86,6 +87,21 @@ async function getDb() {
   uMigs.forEach(([col, sql]) => {
     if (uCols.length && !uCols.find(c => c.name === col)) _db.run(sql);
   });
+
+  // Migración de datos: renombrar los valores de progreso del juego
+  // "Completado" -> "Terminado" y "Pendiente" -> "No terminado" (idempotente:
+  // una vez migradas las filas, LOWER(TRIM(estado)) ya no coincide con los valores
+  // viejos y las siguientes ejecuciones no vuelven a tocarlas). Esto es solo sobre
+  // la columna `estado` de la tabla `juego` (progreso del juego) — NO afecta a la
+  // columna `estado` de la tabla `amistad` (solicitudes de amistad, valor 'pendiente'
+  // independiente que no se debe tocar).
+  _db.run(`UPDATE juego SET estado='Terminado' WHERE LOWER(TRIM(estado))='completado' AND estado != 'Terminado'`);
+  _db.run(`UPDATE juego SET estado='No terminado' WHERE LOWER(TRIM(estado))='pendiente' AND estado != 'No terminado'`);
+  // Normaliza también variantes de mayúsculas/minúsculas de los valores nuevos que ya
+  // pudieran existir (p. ej. filas insertadas entre corridas de esta migración), para que
+  // el valor mostrado en la Colección sea siempre exactamente "Terminado" / "No terminado".
+  _db.run(`UPDATE juego SET estado='Terminado' WHERE LOWER(TRIM(estado))='terminado' AND estado != 'Terminado'`);
+  _db.run(`UPDATE juego SET estado='No terminado' WHERE LOWER(TRIM(estado))='no terminado' AND estado != 'No terminado'`);
 
   save();
   return _db;
@@ -111,8 +127,8 @@ function all(db, sql) { return _exec(db, sql); }
 function get(db, sql) { return _exec(db, sql)[0] || null; }
 function run(db, sql) {
   db.run(sql);
-  save();
   const row = _exec(db, 'SELECT last_insert_rowid() as id')[0];
+  save();
   return { lastInsertRowid: row ? row.id : null };
 }
 

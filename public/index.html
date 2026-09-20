@@ -47,9 +47,9 @@
       </div>
       <div class="modal-body">
         <p style="font-size:13px;color:#a0a0c0;margin-bottom:1rem;line-height:1.7">
-          El archivo debe tener estas columnas en orden:<br>
-          <span style="color:#7c4dff;font-size:12px">NOMBRE, PLATAFORMA, DESARROLLADORA, AÑO, GENERO, CLASIFICACION, NUM_JUGADORES, ESTADO, REGION, CONTENIDO</span><br><br>
-          La primera fila debe ser el encabezado. Los juegos se agregarán a tu colección.
+          Cada hoja del archivo representa una plataforma: el nombre de la hoja se usa como plataforma de todos los juegos que contiene. Cada hoja debe tener estas columnas en orden:<br>
+          <span style="color:#7c4dff;font-size:12px">NOMBRE, NUM_JUGADORES, DESARROLLADORA, GENERO, ESTADO, CLASIFICACION, PROGRESO, REGION, EXCLUSIVIDAD</span><br><br>
+          La primera fila de cada hoja debe ser el encabezado. Los juegos de todas las hojas se agregarán a tu colección.
         </p>
         <div id="import-preview" style="display:none">
           <div style="font-size:12px;color:#6b6b8a;margin-bottom:8px" id="import-count"></div>
@@ -156,30 +156,15 @@
       <h2 class="section-title"><i class="ti ti-plus"></i>Agregar juego</h2>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Título *</label><input class="form-input" id="add-nombre" placeholder="Ej: Street Fighter II" /></div>
-        <div class="form-group"><label class="form-label">Año</label><input class="form-input" id="add-anio" type="number" placeholder="1991" /></div>
-      </div>
-      <div class="form-row">
         <div class="form-group"><label class="form-label">Plataforma</label><input class="form-input" id="add-plataforma" placeholder="Ej: SNES, PC, PS5..." /></div>
-        <div class="form-group"><label class="form-label">Género</label><input class="form-input" id="add-genero" placeholder="Ej: Acción, RPG, Puzzle..." /></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Desarrolladora</label><input class="form-input" id="add-desarrolladora" placeholder="Ej: Capcom, Nintendo..." /></div>
-        <div class="form-group"><label class="form-label">Clasificación</label><input class="form-input" id="add-clasificacion" placeholder="Ej: E, T, M, AO..." /></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">N.º de jugadores</label><input class="form-input" id="add-num_jugadores" placeholder="Ej: 1, 2, 2-4, Online..." /></div>
-        <div class="form-group"><label class="form-label">Estado</label>
-          <select class="form-select" id="add-estado">
-            <option value="Pendiente">Pendiente</option>
-            <option value="Jugando">Jugando</option>
-            <option value="Completado">Completado</option>
-            <option value="Abandonado">Abandonado</option>
-          </select>
-        </div>
+        <div class="form-group"><label class="form-label">Desarrolladora</label><input class="form-input" id="add-desarrolladora" placeholder="Ej: Capcom, Nintendo..." /></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Región</label><input class="form-input" id="add-region" placeholder="Ej: NTSC, PAL, JAP, USA, EUR..." /></div>
-        <div class="form-group"><label class="form-label">Contenido</label>
+        <div class="form-group"><label class="form-label">Género</label><input class="form-input" id="add-genero" placeholder="Ej: Acción, RPG, Puzzle..." /></div>
+        <div class="form-group"><label class="form-label">Estado</label>
           <select class="form-select" id="add-contenido">
             <option value="">Seleccionar...</option>
             <option value="Disco/Cartucho">Disco/Cartucho</option>
@@ -190,6 +175,21 @@
           </select>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Clasificación</label><input class="form-input" id="add-clasificacion" placeholder="Ej: E, T, M, AO..." /></div>
+        <div class="form-group"><label class="form-label">Progreso</label>
+          <select class="form-select" id="add-estado">
+            <option value="No terminado">No terminado</option>
+            <option value="Jugando">Jugando</option>
+            <option value="Terminado">Terminado</option>
+            <option value="Abandonado">Abandonado</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Región</label><input class="form-input" id="add-region" placeholder="Ej: NTSC, PAL, JAP, USA, EUR..." /></div>
+        <div class="form-group"><label class="form-label">Exclusividad</label><input class="form-input" id="add-exclusividad" placeholder="Ej: Exclusivo de PlayStation, Multiplataforma..." /></div>
+      </div>
       <button class="btn btn-primary" id="btn-add"><i class="ti ti-device-floppy"></i> Guardar juego</button>
       <div class="msg msg-success" id="add-success"><i class="ti ti-check"></i> ¡Juego agregado a la colección!</div>
       <div class="msg msg-error" id="add-error"><i class="ti ti-alert-circle"></i> <span id="add-error-text">El título es obligatorio.</span></div>
@@ -199,9 +199,9 @@
     <section class="panel" id="panel-list">
       <div class="stats-row">
         <div class="stat-card"><div class="stat-num cyan" id="stat-total">0</div><div class="stat-label">Total</div></div>
-        <div class="stat-card"><div class="stat-num green" id="stat-completado">0</div><div class="stat-label">Completados</div></div>
+        <div class="stat-card"><div class="stat-num green" id="stat-completado">0</div><div class="stat-label">Terminados</div></div>
         <div class="stat-card"><div class="stat-num gold" id="stat-jugando">0</div><div class="stat-label">Jugando</div></div>
-        <div class="stat-card"><div class="stat-num muted" id="stat-pendiente">0</div><div class="stat-label">Pendientes</div></div>
+        <div class="stat-card"><div class="stat-num muted" id="stat-pendiente">0</div><div class="stat-label">No terminados</div></div>
       </div>
       <div class="filter-grid">
         <div class="filter-group">
@@ -213,6 +213,10 @@
           <input class="form-input" id="list-plataforma" placeholder="Ej: SNES, PS5, PC..." />
         </div>
         <div class="filter-group">
+          <label class="filter-label">N.º de jugadores</label>
+          <input class="form-input" id="list-num_jugadores" placeholder="Ej: 1, 2-4, Online..." />
+        </div>
+        <div class="filter-group">
           <label class="filter-label">Desarrolladora</label>
           <input class="form-input" id="list-desarrolladora" placeholder="Ej: Nintendo, Capcom..." />
         </div>
@@ -221,29 +225,7 @@
           <input class="form-input" id="list-genero" placeholder="Ej: RPG, Acción..." />
         </div>
         <div class="filter-group">
-          <label class="filter-label">Clasificación</label>
-          <input class="form-input" id="list-clasificacion" placeholder="Ej: E, T, M..." />
-        </div>
-        <div class="filter-group">
-          <label class="filter-label">N.º de jugadores</label>
-          <input class="form-input" id="list-num_jugadores" placeholder="Ej: 1, 2-4, Online..." />
-        </div>
-        <div class="filter-group">
-          <label class="filter-label">Estado de avance</label>
-          <select class="form-select" id="list-estado">
-          <option value="">Todos los estados</option>
-          <option value="Pendiente">Pendiente</option>
-          <option value="Jugando">Jugando</option>
-          <option value="Completado">Completado</option>
-          <option value="Abandonado">Abandonado</option>
-        </select>
-        </div>
-        <div class="filter-group">
-          <label class="filter-label">Región</label>
-          <input class="form-input" id="list-region" placeholder="Ej: NTSC, PAL, JAP..." />
-        </div>
-        <div class="filter-group">
-          <label class="filter-label">Contenido</label>
+          <label class="filter-label">Estado</label>
           <select class="form-select" id="list-contenido">
             <option value="">Todos</option>
             <option value="Disco/Cartucho">Disco/Cartucho</option>
@@ -254,16 +236,30 @@
           </select>
         </div>
         <div class="filter-group">
+          <label class="filter-label">Clasificación</label>
+          <input class="form-input" id="list-clasificacion" placeholder="Ej: E, T, M..." />
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Progreso</label>
+          <select class="form-select" id="list-estado">
+          <option value="">Todos los estados</option>
+          <option value="No terminado">No terminado</option>
+          <option value="Jugando">Jugando</option>
+          <option value="Terminado">Terminado</option>
+          <option value="Abandonado">Abandonado</option>
+        </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Región</label>
+          <input class="form-input" id="list-region" placeholder="Ej: NTSC, PAL, JAP..." />
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Exclusividad</label>
+          <input class="form-input" id="list-exclusividad" placeholder="Ej: Exclusivo de PlayStation, Multiplataforma..." />
+        </div>
+        <div class="filter-group">
           <label class="filter-label">Búsqueda global</label>
           <input class="form-input" id="list-global" placeholder="Busca en todos los campos..." />
-        </div>
-        <div class="filter-group filter-group-range">
-          <label class="filter-label">Rango de año</label>
-          <div class="range-inputs">
-            <input class="form-input" id="list-anio-desde" type="number" placeholder="Desde" min="1970" max="2030" />
-            <span class="range-sep">—</span>
-            <input class="form-input" id="list-anio-hasta" type="number" placeholder="Hasta" min="1970" max="2030" />
-          </div>
         </div>
         <div class="filter-group filter-group-btn">
           <button class="btn btn-ghost btn-sm" id="btn-clear-filters"><i class="ti ti-x"></i> Limpiar filtros</button>
@@ -309,34 +305,21 @@
           <button class="btn btn-ghost btn-sm" id="btn-clear-edit-filters"><i class="ti ti-x"></i> Limpiar</button>
         </div>
       </div>
-      <div class="form-group"><label class="form-label">Seleccionar juego</label><select class="edit-select" id="edit-select"><option value="">— Elige un juego —</option></select></div>
-      <div id="edit-form" style="display:none">
+      <div class="delete-list" id="edit-list"></div>
+      <div class="empty-state" id="edit-search-empty" style="display:none"><i class="ti ti-search"></i><p>No se encontraron juegos con esos filtros.</p></div>
+      <div class="empty-state" id="edit-search-prompt" style="display:none"><i class="ti ti-search"></i><p>Escribe en los filtros de arriba para buscar el juego que querés modificar.</p></div>
+      <div id="edit-form" style="display:none;margin-top:1.25rem">
         <div class="form-row">
           <div class="form-group"><label class="form-label">Título *</label><input class="form-input" id="edit-nombre" /></div>
-          <div class="form-group"><label class="form-label">Año</label><input class="form-input" id="edit-anio" type="number" /></div>
-        </div>
-        <div class="form-row">
           <div class="form-group"><label class="form-label">Plataforma</label><input class="form-input" id="edit-plataforma" placeholder="Ej: SNES, PC, PS5..." /></div>
-          <div class="form-group"><label class="form-label">Género</label><input class="form-input" id="edit-genero" placeholder="Ej: Acción, RPG..." /></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">Desarrolladora</label><input class="form-input" id="edit-desarrolladora" /></div>
-          <div class="form-group"><label class="form-label">Clasificación</label><input class="form-input" id="edit-clasificacion" placeholder="Ej: E, T, M..." /></div>
         </div>
         <div class="form-row">
           <div class="form-group"><label class="form-label">N.º de jugadores</label><input class="form-input" id="edit-num_jugadores" placeholder="Ej: 1, 2-4, Online..." /></div>
-          <div class="form-group"><label class="form-label">Estado</label>
-          <select class="form-select" id="edit-estado">
-            <option value="Pendiente">Pendiente</option>
-            <option value="Jugando">Jugando</option>
-            <option value="Completado">Completado</option>
-            <option value="Abandonado">Abandonado</option>
-          </select>
-        </div>
+          <div class="form-group"><label class="form-label">Desarrolladora</label><input class="form-input" id="edit-desarrolladora" /></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label class="form-label">Región</label><input class="form-input" id="edit-region" placeholder="Ej: NTSC, PAL, JAP..." /></div>
-          <div class="form-group"><label class="form-label">Contenido</label>
+          <div class="form-group"><label class="form-label">Género</label><input class="form-input" id="edit-genero" placeholder="Ej: Acción, RPG..." /></div>
+          <div class="form-group"><label class="form-label">Estado</label>
             <select class="form-select" id="edit-contenido">
               <option value="">Seleccionar...</option>
               <option value="Disco/Cartucho">Disco/Cartucho</option>
@@ -346,6 +329,21 @@
               <option value="CIB/Extra">CIB/Extra</option>
             </select>
           </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Clasificación</label><input class="form-input" id="edit-clasificacion" placeholder="Ej: E, T, M..." /></div>
+          <div class="form-group"><label class="form-label">Progreso</label>
+          <select class="form-select" id="edit-estado">
+            <option value="No terminado">No terminado</option>
+            <option value="Jugando">Jugando</option>
+            <option value="Terminado">Terminado</option>
+            <option value="Abandonado">Abandonado</option>
+          </select>
+        </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Región</label><input class="form-input" id="edit-region" placeholder="Ej: NTSC, PAL, JAP..." /></div>
+          <div class="form-group"><label class="form-label">Exclusividad</label><input class="form-input" id="edit-exclusividad" placeholder="Ej: Exclusivo de PlayStation, Multiplataforma..." /></div>
         </div>
         <button class="btn btn-success" id="btn-save-edit"><i class="ti ti-device-floppy"></i> Guardar cambios</button>
         <div class="msg msg-success" id="edit-success"><i class="ti ti-check"></i> ¡Juego actualizado!</div>
@@ -382,8 +380,13 @@
           <button class="btn btn-ghost btn-sm" id="btn-clear-del-filters"><i class="ti ti-x"></i> Limpiar</button>
         </div>
       </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem">
+        <button class="btn btn-danger btn-sm" id="btn-delete-all"><i class="ti ti-trash-x"></i> Eliminar todo</button>
+      </div>
       <div class="delete-list" id="delete-list"></div>
       <div class="empty-state" id="delete-empty" style="display:none"><i class="ti ti-inbox"></i><p>No hay juegos en la colección.</p></div>
+      <div class="empty-state" id="del-search-empty" style="display:none"><i class="ti ti-search"></i><p>No se encontraron juegos con esos filtros.</p></div>
+      <div class="empty-state" id="del-search-prompt" style="display:none"><i class="ti ti-search"></i><p>Escribe en los filtros de arriba para buscar el juego que querés eliminar.</p></div>
       <div class="confirm-dialog" id="confirm-dialog">
         <div class="confirm-title"><i class="ti ti-alert-triangle"></i> Confirmar eliminación</div>
         <div class="confirm-text" id="confirm-text">¿Eliminar este juego?</div>
@@ -486,6 +489,9 @@
     </div>
 
   </div>
+
+  <div class="toast" id="toast"></div>
+
     <!-- SheetJS 0.20.3 — Lectura/escritura de Excel y CSV con soporte de encoding nativo -->
     <script src="/js/xlsx.full.min.js"></script>
   <script src="js/app.js"></script>
