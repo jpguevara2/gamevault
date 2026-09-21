@@ -14,7 +14,8 @@ const LocalStrategy  = require('passport-local').Strategy;
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const bcrypt         = require('bcryptjs');
 const path           = require('path');
-const { getDb, all, get, run } = require('./database/db');
+const { getDb, all, get, run, transaction } = require('./database/db');
+const { FileStore, SESSIONS_PATH } = require('./database/session-store');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -22,11 +23,28 @@ const PORT = process.env.PORT || 3000;
 // ── Configuración ─────────────────────────────────────────────
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-const SESSION_SECRET       = process.env.SESSION_SECRET       || 'gamevault_secret_2024';
+const SESSION_SECRET       = getSessionSecret();
 
-app.use(express.json());
+// Secreto de sesión: el del .env si existe; si no, se genera uno aleatorio la primera vez
+// y se guarda en disco. Tiene que ser estable entre reinicios: si cambiara, las cookies
+// firmadas con el anterior dejarían de ser válidas y se perderían las sesiones.
+function getSessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const file = path.join(__dirname, 'database', '.session_secret');
+  try {
+    const saved = fs_env.readFileSync(file, 'utf8').trim();
+    if (saved) return saved;
+  } catch (_) {}
+  const secret = require('crypto').randomBytes(48).toString('hex');
+  fs_env.writeFileSync(file, secret, { mode: 0o600 });
+  console.warn('SESSION_SECRET no está definido en .env: se generó uno y se guardó en database/.session_secret');
+  return secret;
+}
+
+app.use(express.json({ limit: '5mb' })); // importaciones/backups grandes superan el límite por defecto (100kb)
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
+  store: new FileStore(SESSIONS_PATH), // sesiones en disco: sobreviven a reinicios del servidor
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -101,6 +119,18 @@ function safeEmail(email) {
 function toId(v) {
   const n = parseInt(v, 10);
   return Number.isInteger(n) && String(n) === String(v).trim() ? n : null;
+}
+
+// Inserta un juego para el usuario `uid` y devuelve { lastInsertRowid }.
+// El año inválido (NaN) se guarda como NULL en vez de romper el SQL.
+function insertJuego(db, uid, g) {
+  const pos  = g.posesion === 'buscado' ? 'buscado' : 'coleccion';
+  const anio = parseInt(g.anio, 10);
+  return run(db, `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad)
+    VALUES (${uid}, ${esc(String(g.nombre).trim())}, ${esc(g.plataforma||null)}, ${esc(g.desarrolladora||null)},
+      ${Number.isFinite(anio) ? anio : 'NULL'}, ${esc(g.genero||null)}, ${esc(g.clasificacion||null)},
+      ${esc(g.num_jugadores||null)}, ${esc(g.estado||'no terminado')}, ${esc(pos)},
+      ${esc(g.region||null)}, ${esc(g.contenido||null)}, ${esc(g.exclusividad||null)})`);
 }
 
 // ── Rate limiting (login) ────────────────────────────────────
@@ -437,17 +467,15 @@ app.post('/api/backup/restore', requireAuth, async (req, res) => {
     const uid    = req.user.id;
     const juegos = req.body.juegos;
     if (!Array.isArray(juegos)) return res.status(400).json({ error: 'Formato inválido' });
-    let ok = 0;
-    for (const g of juegos) {
-      if (!g.nombre) continue;
-      const pos = g.posesion === 'buscado' ? 'buscado' : 'coleccion';
-      run(db, `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad)
-        VALUES (${uid}, ${esc(String(g.nombre).trim())}, ${esc(g.plataforma||null)}, ${esc(g.desarrolladora||null)},
-          ${g.anio ? parseInt(g.anio) : 'NULL'}, ${esc(g.genero||null)}, ${esc(g.clasificacion||null)},
-          ${esc(g.num_jugadores||null)}, ${esc(g.estado||'no terminado')}, ${esc(pos)},
-          ${esc(g.region||null)}, ${esc(g.contenido||null)}, ${esc(g.exclusividad||null)})`);
-      ok++;
-    }
+    const ok = transaction(db, () => {
+      let n = 0;
+      for (const g of juegos) {
+        if (!g || !g.nombre) continue;
+        insertJuego(db, uid, g);
+        n++;
+      }
+      return n;
+    });
     res.json({ ok: true, importados: ok });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -501,13 +529,29 @@ app.post('/api/juegos', requireAuth, async (req, res) => {
     const uid = req.user.id;
     const { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad } = req.body;
     if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
-    const pos = (posesion === 'buscado') ? 'buscado' : 'coleccion';
-    const sql = `INSERT INTO juego (usuario_id, nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad)
-      VALUES (${uid}, ${esc(String(nombre).trim())}, ${esc(plataforma||null)}, ${esc(desarrolladora||null)},
-        ${anio ? parseInt(anio) : 'NULL'}, ${esc(genero||null)}, ${esc(clasificacion||null)},
-        ${esc(num_jugadores||null)}, ${esc(estado||'no terminado')}, ${esc(pos)}, ${esc(region||null)}, ${esc(contenido||null)}, ${esc(exclusividad||null)})`;
-    const result = run(db, sql);
+    const result = insertJuego(db, uid, { nombre, plataforma, desarrolladora, anio, genero, clasificacion, num_jugadores, estado, posesion, region, contenido, exclusividad });
     res.status(201).json(get(db, `SELECT * FROM juego WHERE id = ${result.lastInsertRowid}`));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Inserta muchos juegos de una vez (importación Excel/CSV): una transacción y una sola
+// escritura a disco. Si algo falla, no se inserta ninguno.
+app.post('/api/juegos/bulk', requireAuth, async (req, res) => {
+  try {
+    const db     = await getDb();
+    const uid    = req.user.id;
+    const juegos = req.body.juegos;
+    if (!Array.isArray(juegos)) return res.status(400).json({ error: 'Formato inválido' });
+    const importados = transaction(db, () => {
+      let n = 0;
+      for (const g of juegos) {
+        if (!g || !String(g.nombre || '').trim()) continue;
+        insertJuego(db, uid, g);
+        n++;
+      }
+      return n;
+    });
+    res.status(201).json({ ok: true, importados, omitidos: juegos.length - importados });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

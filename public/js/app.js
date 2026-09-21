@@ -420,6 +420,7 @@ document.getElementById('btn-add').addEventListener('click', async () => {
     })});
     document.querySelectorAll('#panel-add .form-input').forEach(el => el.value='');
     document.getElementById('add-contenido').value='';
+    document.getElementById('add-estado').value='';
     showMsg('add-success'); refreshStats();
   } catch(e) {
     document.getElementById('add-error-text').textContent=e.message;
@@ -865,14 +866,13 @@ document.getElementById('import-confirm-btn').addEventListener('click', async ()
   const btn = document.getElementById('import-confirm-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2"></i> Importando...';
-  let ok = 0, fail = 0;
-  for (const row of importRows) {
-    try {
-      const res = await fetch('/api/juegos', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ ...row, posesion:'coleccion' }) });
-      if (res.ok) ok++; else fail++;
-    } catch(_) { fail++; }
-  }
+  // Un solo request: el servidor inserta todo en una transacción (todo o nada)
+  let ok = 0, fail = importRows.length;
+  try {
+    const res = await fetch('/api/juegos/bulk', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ juegos: importRows.map(r => ({ ...r, posesion:'coleccion' })) }) });
+    if (res.ok) { const data = await res.json(); ok = data.importados; fail = data.omitidos; }
+  } catch(_) {}
   btn.disabled = false;
   btn.innerHTML = `<i class="ti ti-upload"></i> Importar ${importRows.length} juegos`;
   const succEl = document.getElementById('import-success-text');

@@ -107,9 +107,31 @@ async function getDb() {
   return _db;
 }
 
+let _batching = false;
+
 function save() {
-  if (!_db) return;
+  if (!_db || _batching) return;
   fs.writeFileSync(DB_PATH, Buffer.from(_db.export()));
+}
+
+// Ejecuta fn() dentro de una transacción y guarda el archivo una sola vez al terminar
+// (en vez de reescribirlo completo en cada run()). Si fn lanza, se hace ROLLBACK.
+// fn debe ser síncrona: mientras corre, run() no escribe a disco.
+function transaction(db, fn) {
+  _batching = true;
+  try {
+    db.run('BEGIN');
+    const result = fn();
+    db.run('COMMIT');
+    _batching = false;
+    save();
+    return result;
+  } catch (e) {
+    try { db.run('ROLLBACK'); } catch (_) {}
+    throw e;
+  } finally {
+    _batching = false;
+  }
 }
 
 function _exec(db, sql) {
@@ -132,4 +154,4 @@ function run(db, sql) {
   return { lastInsertRowid: row ? row.id : null };
 }
 
-module.exports = { getDb, all, get, run };
+module.exports = { getDb, all, get, run, transaction };
