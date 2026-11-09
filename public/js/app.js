@@ -1,7 +1,13 @@
-// Escapa texto para insertarlo de forma segura en innerHTML (previene XSS
-// almacenado desde campos que el usuario controla: nombre de juego, username, etc.)
-function escapeHtml(str) {
-  return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+// ── Helpers de seguridad (anti-XSS) ──────────────────────────
+function h(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function intId(v) { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : 0; }
+function safeUrl(u) {
+  try { const x = new URL(u); return (x.protocol === 'https:' || x.protocol === 'http:') ? x.href : ''; }
+  catch (_) { return ''; }
 }
 
 // ── AUTH ──────────────────────────────────────────────────────
@@ -60,26 +66,15 @@ function showMsg(id, dur=2500) {
   setTimeout(() => el.classList.remove('show'), dur);
 }
 
-let toastTimer = null;
-function showToast(message, icon='ti-check') {
-  const el = document.getElementById('toast');
-  if (!el) return;
-  el.innerHTML = `<i class="ti ${icon}"></i> <span>${message}</span>`;
-  clearTimeout(toastTimer);
-  el.classList.remove('show'); void el.offsetWidth; // reinicia animación si ya estaba visible
-  el.classList.add('show');
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
-}
-
 function openAccountModal() {
   document.getElementById('modal-account').style.display = 'flex';
   if (currentUser) {
     document.getElementById('acc-nombre').value   = currentUser.nombre   || '';
     document.getElementById('acc-username').value = currentUser.username || '';
     document.getElementById('account-info').innerHTML =
-      `<strong>Nombre:</strong> ${escapeHtml(currentUser.nombre)}<br>` +
-      `<strong>Username:</strong> ${currentUser.username ? '@'+escapeHtml(currentUser.username) : '<span style="color:#ff3d6b">No configurado</span>'}<br>` +
-      `<strong>Email:</strong> ${escapeHtml(currentUser.email)}` +
+      `<strong>Nombre:</strong> ${h(currentUser.nombre)}<br>` +
+      `<strong>Username:</strong> ${currentUser.username ? '@'+h(currentUser.username) : '<span style="color:#ff3d6b">No configurado</span>'}<br>` +
+      `<strong>Email:</strong> ${h(currentUser.email)}` +
       (currentUser.avatar ? '<br><span style="color:#7c4dff">Cuenta Google vinculada</span>' : '');
   }
   // Limpiar campos de contraseña
@@ -140,9 +135,9 @@ document.getElementById('btn-change-username').addEventListener('click', async (
     currentUser.username = data.username;
     document.getElementById('acc-username').value = data.username;
     document.getElementById('account-info').innerHTML =
-      `<strong>Nombre:</strong> ${escapeHtml(currentUser.nombre)}<br>` +
-      `<strong>Username:</strong> <span style="color:#7c4dff">@${escapeHtml(data.username)}</span><br>` +
-      `<strong>Email:</strong> ${escapeHtml(currentUser.email)}` +
+      `<strong>Nombre:</strong> ${h(currentUser.nombre)}<br>` +
+      `<strong>Username:</strong> <span style="color:#7c4dff">@${h(data.username)}</span><br>` +
+      `<strong>Email:</strong> ${h(currentUser.email)}` +
       (currentUser.avatar ? '<br><span style="color:#7c4dff">Cuenta Google vinculada</span>' : '');
     showMsg('acc-username-success');
   } catch(e) { errEl.textContent = 'Error de conexión.'; showMsg('acc-username-error'); }
@@ -160,22 +155,27 @@ document.getElementById('btn-change-nombre').addEventListener('click', async () 
     currentUser.nombre = data.nombre;
     document.getElementById('user-name').textContent = data.nombre;
     document.getElementById('account-info').innerHTML =
-      `<strong>Nombre:</strong> ${escapeHtml(data.nombre)}<br><strong>Email:</strong> ${escapeHtml(currentUser.email)}` +
+      `<strong>Nombre:</strong> ${h(data.nombre)}<br><strong>Email:</strong> ${h(currentUser.email)}` +
       (currentUser.avatar ? '<br><span style="color:#7c4dff">Cuenta Google vinculada</span>' : '');
     showMsg('acc-nombre-success');
   } catch(e) { errEl.textContent = 'Error de conexión.'; showMsg('acc-nombre-error'); }
 });
 
 const API = '/api';
-const ESTADO_COLOR = { terminado:'#00e676', jugando:'#ffc400', 'no terminado':'#6b6b8a', abandonado:'#ff3d6b' };
+const ESTADO_COLOR = { completado:'#00e676', jugando:'#ffc400', pendiente:'#6b6b8a', abandonado:'#ff3d6b' };
 
+function estadoKey(estado) {
+  const t = String(estado||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  if (/^(no\s+terminad|no\s+complet|sin\s+terminar|pendient)/.test(t)) return 'pendiente';
+  if (/^(terminad|complet|finalizad|acabad)/.test(t)) return 'completado';
+  if (/^(jugand|en\s+curso|en\s+progreso)/.test(t)) return 'jugando';
+  if (/^abandon/.test(t)) return 'abandonado';
+  return 'pendiente';
+}
 function estadoColor(estado) {
-  if (!estado) return '#6b6b8a';
-  return ESTADO_COLOR[(estado||'').toLowerCase().trim()] || '#6b6b8a';
+  return ESTADO_COLOR[estadoKey(estado)] || '#6b6b8a';
 }
 let pendingDeleteId = null;
-let pendingDeleteName = null;
-let pendingDeleteAll = false;
 let sortCol   = 'plataforma'; // columna activa de ordenamiento
 let sortDir   = 1;            // 1=asc, -1=desc
 let allGames = []; // cache local para filtrado en cliente
@@ -197,20 +197,21 @@ function showMsg(id, dur=2500) {
   setTimeout(()=>el.classList.remove('show'), dur);
 }
 function nullCell(val) {
-  return val ? `<td>${escapeHtml(val)}</td>` : `<td class="td-null">(null)</td>`;
+  return val ? `<td>${h(val)}</td>` : `<td class="td-null">(null)</td>`;
 }
 function getFilters() {
   return {
     q:             document.getElementById('list-q').value.trim().toLowerCase(),
     plataforma:    document.getElementById('list-plataforma').value.trim().toLowerCase(),
-    num_jugadores: document.getElementById('list-num_jugadores').value.trim().toLowerCase(),
     desarrolladora:document.getElementById('list-desarrolladora').value.trim().toLowerCase(),
     genero:        document.getElementById('list-genero').value.trim().toLowerCase(),
-    contenido:     document.getElementById('list-contenido').value.toLowerCase(),
     clasificacion: document.getElementById('list-clasificacion').value.trim().toLowerCase(),
+    num_jugadores: document.getElementById('list-num_jugadores').value.trim().toLowerCase(),
     estado:        document.getElementById('list-estado').value.trim().toLowerCase(),
+    anio_desde:    parseInt(document.getElementById('list-anio-desde').value) || null,
+    anio_hasta:    parseInt(document.getElementById('list-anio-hasta').value) || null,
     region:        document.getElementById('list-region').value.trim().toLowerCase(),
-    exclusividad:  document.getElementById('list-exclusividad').value.trim().toLowerCase(),
+    contenido:     document.getElementById('list-contenido').value.toLowerCase(),
     global:        document.getElementById('list-global').value.trim().toLowerCase(),
   };
 }
@@ -242,16 +243,39 @@ function applyFilters() {
     if (f.clasificacion  && !(g.clasificacion||'').toLowerCase().includes(f.clasificacion)) return false;
     if (f.num_jugadores  && !(g.num_jugadores||'').toLowerCase().includes(f.num_jugadores)) return false;
     if (f.estado         && (g.estado||'').toLowerCase().trim() !== f.estado.toLowerCase().trim()) return false;
+    if (f.anio_desde && (!g.anio || g.anio < f.anio_desde)) return false;
+    if (f.anio_hasta && (!g.anio || g.anio > f.anio_hasta)) return false;
     if (f.region     && !(g.region||'').toLowerCase().includes(f.region))  return false;
     if (f.contenido  && (g.contenido||'').toLowerCase() !== f.contenido)   return false;
-    if (f.exclusividad && !(g.exclusividad||'').toLowerCase().includes(f.exclusividad)) return false;
     if (f.global) {
-      const all = [g.nombre,g.plataforma,g.desarrolladora,g.genero,g.clasificacion,g.num_jugadores,g.estado,g.region,g.contenido,g.exclusividad].map(v=>(v||'').toLowerCase()).join(' ');
+      const all = [g.nombre,g.plataforma,g.desarrolladora,g.genero,g.clasificacion,g.num_jugadores,g.estado,g.region,g.contenido,g.exclusividad,g.pila,String(g.nota==null?'':g.nota),String(g.anio||'')].map(v=>(v||'').toLowerCase()).join(' ');
       if (!all.includes(f.global)) return false;
     }
     return true;
   });
 }
+
+// ── Paginación de la colección ──
+const PAGE_SIZES = [100, 150, 200, 250, 500, 750];
+let pageSize = 100, pageNum = 1, lastViewKey = '';
+try { const v = Number(localStorage.getItem('gv_page_size')); if (PAGE_SIZES.includes(v)) pageSize = v; } catch(_){}
+
+function updatePager(total, from, shown, totalPages) {
+  document.getElementById('page-info').textContent = `${total ? from + 1 : 0}–${from + shown} de ${total}  ·  pág. ${pageNum}/${totalPages}`;
+  document.getElementById('page-prev').disabled = pageNum <= 1;
+  document.getElementById('page-next').disabled = pageNum >= totalPages;
+}
+(function initPager() {
+  const sel = document.getElementById('page-size');
+  sel.innerHTML = PAGE_SIZES.map(n => `<option value="${n}"${n===pageSize?' selected':''}>${n}</option>`).join('');
+  sel.addEventListener('change', e => {
+    pageSize = Number(e.target.value);
+    try { localStorage.setItem('gv_page_size', String(pageSize)); } catch(_){}
+    renderCollection();
+  });
+  document.getElementById('page-prev').addEventListener('click', () => { pageNum--; renderCollection(); });
+  document.getElementById('page-next').addEventListener('click', () => { pageNum++; renderCollection(); });
+})();
 
 function renderCollection() {
   const body  = document.getElementById('collection-body');
@@ -259,17 +283,22 @@ function renderCollection() {
   const en    = document.getElementById('list-no-games');
 
   if (!allGames.length) {
-    body.innerHTML=''; en.style.display='block'; ef.style.display='none'; return;
+    body.innerHTML=''; en.style.display='block'; ef.style.display='none'; pageNum = 1; updatePager(0, 0, 0, 1); return;
   }
   en.style.display='none';
 
   const juegos = applyFilters();
   if (!juegos.length) {
-    body.innerHTML=''; ef.style.display='block'; return;
+    body.innerHTML=''; ef.style.display='block'; pageNum = 1; updatePager(0, 0, 0, 1); return;
   }
   ef.style.display='none';
 
   juegos.sort((a, b) => {
+    if (sortCol === 'nota' || sortCol === 'anio') {
+      const na = a[sortCol] == null ? Infinity : Number(a[sortCol]);
+      const nb = b[sortCol] == null ? Infinity : Number(b[sortCol]);
+      return na === nb ? 0 : (na < nb ? -1 : 1) * sortDir;
+    }
     const va = (a[sortCol] !== null && a[sortCol] !== undefined) ? String(a[sortCol]).toLowerCase() : 'zzz';
     const vb = (b[sortCol] !== null && b[sortCol] !== undefined) ? String(b[sortCol]).toLowerCase() : 'zzz';
     if (va < vb) return -1 * sortDir;
@@ -277,24 +306,35 @@ function renderCollection() {
     return 0;
   });
 
-  const cols = ['nombre','plataforma','num_jugadores','desarrolladora','genero','contenido','clasificacion','estado','region','exclusividad'];
-  const colLabels = ['NOMBRE','PLATAFORMA','NUM_JUGADORES','DESARROLLADORA','GENERO','ESTADO','CLASIFICACION','PROGRESO','REGION','EXCLUSIVIDAD'];
+  const cols = ['nombre','plataforma','desarrolladora','anio','genero','clasificacion','num_jugadores','estado','region','contenido','exclusividad','pila','nota'];
+  const colLabels = ['NOMBRE','PLATAFORMA','DESARROLLADORA','AÑO','GENERO','CLASIFICACION','NUM_JUGADORES','ESTADO','REGION','CONTENIDO','EXCLUSIVIDAD','PILA','NOTA'];
 
-  const rows = juegos.map(g => `
+  // Si cambian filtros, orden o tamaño de página, volver a la página 1
+  const viewKey = JSON.stringify(getFilters()) + '|' + sortCol + '|' + sortDir + '|' + pageSize;
+  if (viewKey !== lastViewKey) { pageNum = 1; lastViewKey = viewKey; }
+  const totalPages = Math.max(1, Math.ceil(juegos.length / pageSize));
+  if (pageNum > totalPages) pageNum = totalPages;
+  const from = (pageNum - 1) * pageSize;
+  const pageRows = juegos.slice(from, from + pageSize);
+
+  const rows = pageRows.map(g => `
     <tr>
-      <td class="td-nombre">${escapeHtml(g.nombre)}</td>
+      <td class="td-nombre">${h(g.nombre)}</td>
       ${nullCell(g.plataforma)}
-      ${nullCell(g.num_jugadores)}
       ${nullCell(g.desarrolladora)}
+      ${nullCell(g.anio)}
       ${nullCell(g.genero)}
-      ${nullCell(g.contenido)}
       ${nullCell(g.clasificacion)}
+      ${nullCell(g.num_jugadores)}
       <td>
         <span class="estado-dot" style="background:${estadoColor(g.estado)}"></span>
-        ${escapeHtml(g.estado||'')}
+        ${h(g.estado)}
       </td>
       ${nullCell(g.region)}
+      ${nullCell(g.contenido)}
       ${nullCell(g.exclusividad)}
+      ${nullCell(g.pila)}
+      ${nullCell(g.nota)}
     </tr>`).join('');
 
   body.innerHTML = `
@@ -311,6 +351,7 @@ function renderCollection() {
       </table>
       <div class="oracle-row-count"><span>${juegos.length}</span> fila${juegos.length!==1?'s':''} seleccionada${juegos.length!==1?'s':''}.</div>
     </div>`;
+  updatePager(juegos.length, from, pageRows.length, totalPages);
 }
 
 async function refreshCollection() {
@@ -320,13 +361,14 @@ async function refreshCollection() {
     await loadAllGames();
     renderCollection();
   } catch(e) {
-    body.innerHTML=`<div class="msg msg-error show"><i class="ti ti-alert-circle"></i> ${e.message}</div>`;
+    body.innerHTML=`<div class="msg msg-error show"><i class="ti ti-alert-circle"></i> ${h(e.message)}</div>`;
   }
 }
 
 // Filtros en tiempo real (sin llamadas extra al servidor)
-['list-q','list-plataforma','list-num_jugadores','list-desarrolladora','list-genero',
- 'list-clasificacion','list-region','list-exclusividad','list-global'].forEach(id => {
+['list-q','list-plataforma','list-desarrolladora','list-genero',
+ 'list-clasificacion','list-num_jugadores',
+ 'list-anio-desde','list-anio-hasta','list-region','list-global'].forEach(id => {
   document.getElementById(id).addEventListener('input', renderCollection);
 });
 document.getElementById('list-estado').addEventListener('change', renderCollection);
@@ -346,8 +388,8 @@ document.getElementById('collection-body').addEventListener('click', e => {
 function exportData(format) {
   var juegos = applyFilters();
   if (!juegos.length) { alert('No hay juegos para exportar.'); return; }
-  var headers = ['NOMBRE','PLATAFORMA','NUM_JUGADORES','DESARROLLADORA','GENERO','ESTADO','CLASIFICACION','PROGRESO','REGION','EXCLUSIVIDAD'];
-  var fields  = ['nombre','plataforma','num_jugadores','desarrolladora','genero','contenido','clasificacion','estado','region','exclusividad'];
+  var headers = ['NOMBRE','PLATAFORMA','DESARROLLADORA','ANIO','GENERO','CLASIFICACION','NUM_JUGADORES','ESTADO','REGION','CONTENIDO','EXCLUSIVIDAD','PILA','NOTA'];
+  var fields  = ['nombre','plataforma','desarrolladora','anio','genero','clasificacion','num_jugadores','estado','region','contenido','exclusividad','pila','nota'];
   var rows = juegos.map(function(g) {
     return fields.map(function(f) { return (g[f] != null) ? String(g[f]) : ''; });
   });
@@ -356,30 +398,23 @@ function exportData(format) {
     var csv = allRows.map(function(r) {
       return r.map(function(v) { return '"' + v.replace(/"/g, '""') + '"'; }).join(',');
     }).join('\r\n');
-    var bom = '﻿'; // codepoint del BOM real; al codificarse a UTF-8 en el Blob da EF BB BF
+    var bom = '\xEF\xBB\xBF';
     download('gamevault_coleccion.csv', 'text/csv;charset=utf-8;', bom + csv);
   } else {
-    var wb = XLSX.utils.book_new();
-    var ws = XLSX.utils.aoa_to_sheet(allRows);
-
-    ws['!cols'] = headers.map(function(h, i) {
-      var maxLen = Math.max(
-        h.length,
-        Math.max.apply(null, rows.map(function(r) { return (r[i] || '').length; }))
-      );
-      return { wch: Math.min(maxLen + 2, 40) };
-    });
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Coleccion');
-
-    var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    var blob  = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    var url   = URL.createObjectURL(blob);
-    var a     = document.createElement('a');
-    a.href = url;
-    a.download = 'gamevault_coleccion.xlsx';
-    a.click();
-    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+    var cells = allRows.map(function(r) {
+      return '<Row>' + r.map(function(v) {
+        var s = v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return '<Cell><Data ss:Type="String">' + s + '</Data></Cell>';
+      }).join('') + '</Row>';
+    }).join('');
+    var ns = 'urn:schemas-microsoft-com:office:spreadsheet';
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>'
+            + '<?mso-application progid="Excel.Sheet"?>'
+            + '<Workbook xmlns="' + ns + '" xmlns:ss="' + ns + '">'
+            + '<Worksheet ss:Name="Coleccion"><Table>'
+            + cells
+            + '</Table></Worksheet></Workbook>';
+    download('gamevault_coleccion.xls', 'application/vnd.ms-excel', xml);
   }
 }
 function download(filename, mime, data) {
@@ -393,9 +428,9 @@ document.getElementById('btn-export-csv').addEventListener('click', () => export
 document.getElementById('btn-export-excel').addEventListener('click', () => exportData('excel'));
 
 document.getElementById('btn-clear-filters').addEventListener('click', () => {
-  ['list-q','list-plataforma','list-num_jugadores','list-desarrolladora','list-genero',
-   'list-contenido','list-clasificacion','list-estado',
-   'list-region','list-exclusividad','list-global'].forEach(id => document.getElementById(id).value='');
+  ['list-q','list-plataforma','list-desarrolladora','list-genero',
+   'list-clasificacion','list-num_jugadores','list-estado',
+   'list-anio-desde','list-anio-hasta','list-region','list-contenido','list-global'].forEach(id => document.getElementById(id).value='');
   renderCollection();
 });
 
@@ -407,20 +442,23 @@ document.getElementById('btn-add').addEventListener('click', async () => {
   try {
     await apiFetch('/juegos', { method:'POST', body: JSON.stringify({
       nombre,
+      anio:           document.getElementById('add-anio').value || null,
       plataforma:     document.getElementById('add-plataforma').value.trim() || null,
       genero:         document.getElementById('add-genero').value.trim() || null,
       desarrolladora: document.getElementById('add-desarrolladora').value.trim() || null,
       clasificacion:  document.getElementById('add-clasificacion').value.trim() || null,
       num_jugadores:  document.getElementById('add-num_jugadores').value.trim() || null,
-      estado:         document.getElementById('add-estado').value.trim() || 'no terminado',
+      estado:         document.getElementById('add-estado').value.trim() || 'pendiente',
       posesion:       'coleccion',
       region:         document.getElementById('add-region').value.trim() || null,
       contenido:      document.getElementById('add-contenido').value || null,
-      exclusividad:   document.getElementById('add-exclusividad').value.trim() || null
+      exclusividad:   document.getElementById('add-exclusividad').value || null,
+      pila:           document.getElementById('add-pila').value || null,
+      nota:           document.getElementById('add-nota').value || null
     })});
     document.querySelectorAll('#panel-add .form-input').forEach(el => el.value='');
     document.getElementById('add-contenido').value='';
-    document.getElementById('add-estado').value='';
+    ['add-exclusividad','add-pila'].forEach(id => document.getElementById(id).value='');
     showMsg('add-success'); refreshStats();
   } catch(e) {
     document.getElementById('add-error-text').textContent=e.message;
@@ -430,34 +468,25 @@ document.getElementById('btn-add').addEventListener('click', async () => {
 
 // ── MODIFICAR ──────────────────────────────────────────────────
 let allEditGames = [];
-let editingId = null;
 
 async function refreshEditSelect() {
+  const sel = document.getElementById('edit-select');
+  const cur = sel.value;
   try {
     allEditGames = await apiFetch('/juegos?posesion=coleccion');
-    renderEditSelect();
+    renderEditSelect(cur);
     document.getElementById('edit-empty').style.display = allEditGames.length ? 'none' : 'block';
   } catch(_){}
 }
 
-function renderEditSelect() {
-  const list   = document.getElementById('edit-list');
-  const empty  = document.getElementById('edit-search-empty');
-  const prompt = document.getElementById('edit-search-prompt');
+function renderEditSelect(keepVal) {
+  const sel = document.getElementById('edit-select');
+  const cur = keepVal !== undefined ? keepVal : sel.value;
   const qN = document.getElementById('edit-search-nombre').value.trim().toLowerCase();
   const qP = document.getElementById('edit-search-plataforma').value.trim().toLowerCase();
   const qD = document.getElementById('edit-search-desarrolladora').value.trim().toLowerCase();
   const qG = document.getElementById('edit-search-genero').value.trim().toLowerCase();
   const qC = document.getElementById('edit-search-clasificacion').value.trim().toLowerCase();
-  const hasQuery = !!(qN||qP||qD||qG||qC);
-
-  if (!hasQuery) {
-    list.innerHTML = '';
-    empty.style.display = 'none';
-    prompt.style.display = allEditGames.length ? 'block' : 'none';
-    return;
-  }
-  prompt.style.display = 'none';
 
   const filtered = allEditGames.filter(g =>
     (!qN || (g.nombre||'').toLowerCase().includes(qN)) &&
@@ -467,27 +496,11 @@ function renderEditSelect() {
     (!qC || (g.clasificacion||'').toLowerCase().includes(qC))
   );
 
-  empty.style.display = (allEditGames.length && !filtered.length) ? 'block' : 'none';
+  sel.innerHTML = '<option value="">— Elige un juego —</option>' +
+    filtered.map(g => `<option value="${intId(g.id)}">[${h(g.plataforma||'Sin plataforma')}] ${h(g.nombre)}</option>`).join('');
 
-  list.innerHTML = filtered.map(g => `
-    <div class="delete-item${String(g.id)===String(editingId)?' selected':''}">
-      <div style="flex:1;min-width:0">
-        <div class="di-title">${escapeHtml(g.nombre)}</div>
-        <div class="di-sub">${[g.plataforma, g.desarrolladora].filter(Boolean).map(escapeHtml).join(' · ')}</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" data-edit="${g.id}"><i class="ti ti-edit"></i> Editar</button>
-    </div>`).join('');
-
-  list.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => {
-    editingId = btn.dataset.edit;
-    loadEditForm(editingId);
-    renderEditSelect();
-  }));
-
-  if (editingId && !filtered.find(g => String(g.id) === String(editingId))) {
-    editingId = null;
-    document.getElementById('edit-form').style.display = 'none';
-  }
+  if (filtered.find(g => String(g.id) === cur)) { sel.value = cur; loadEditForm(cur); }
+  else document.getElementById('edit-form').style.display = 'none';
 }
 async function loadEditForm(id) {
   if (!id) { document.getElementById('edit-form').style.display='none'; return; }
@@ -495,6 +508,7 @@ async function loadEditForm(id) {
     const g = await apiFetch('/juegos/'+id);
     document.getElementById('edit-form').style.display='block';
     document.getElementById('edit-nombre').value         = g.nombre||'';
+    document.getElementById('edit-anio').value           = g.anio||'';
     document.getElementById('edit-plataforma').value     = g.plataforma||'';
     document.getElementById('edit-genero').value         = g.genero||'';
     document.getElementById('edit-desarrolladora').value = g.desarrolladora||'';
@@ -504,6 +518,8 @@ async function loadEditForm(id) {
     document.getElementById('edit-region').value         = g.region||'';
     document.getElementById('edit-contenido').value      = g.contenido||'';
     document.getElementById('edit-exclusividad').value   = g.exclusividad||'';
+    document.getElementById('edit-pila').value           = g.pila||'';
+    document.getElementById('edit-nota').value           = (g.nota===null||g.nota===undefined) ? '' : g.nota;
   } catch(_){}
 }
 ['edit-search-nombre','edit-search-plataforma','edit-search-desarrolladora',
@@ -518,24 +534,29 @@ document.getElementById('btn-clear-edit-filters').addEventListener('click', () =
   renderEditSelect();
 });
 
+document.getElementById('edit-select').addEventListener('change', e => loadEditForm(e.target.value));
 document.getElementById('btn-save-edit').addEventListener('click', async () => {
-  const id = editingId; if (!id) return;
+  const id = document.getElementById('edit-select').value; if (!id) return;
   const btn = document.getElementById('btn-save-edit'); btn.disabled=true;
   try {
     await apiFetch('/juegos/'+id, { method:'PUT', body: JSON.stringify({
       nombre:         document.getElementById('edit-nombre').value.trim(),
+      anio:           document.getElementById('edit-anio').value||null,
       plataforma:     document.getElementById('edit-plataforma').value.trim()||null,
       genero:         document.getElementById('edit-genero').value.trim()||null,
       desarrolladora: document.getElementById('edit-desarrolladora').value.trim()||null,
       clasificacion:  document.getElementById('edit-clasificacion').value.trim()||null,
       num_jugadores:  document.getElementById('edit-num_jugadores').value.trim()||null,
-      estado:         document.getElementById('edit-estado').value.trim()||'no terminado',
+      estado:         document.getElementById('edit-estado').value.trim()||'pendiente',
       region:         document.getElementById('edit-region').value.trim()||null,
       contenido:      document.getElementById('edit-contenido').value||null,
-      exclusividad:   document.getElementById('edit-exclusividad').value.trim()||null
+      exclusividad:   document.getElementById('edit-exclusividad').value||null,
+      pila:           document.getElementById('edit-pila').value||null,
+      nota:           document.getElementById('edit-nota').value||null
     })});
     showMsg('edit-success'); refreshStats();
-    await refreshEditSelect();
+    await refreshEditSelect(); renderEditSelect(id);
+    document.getElementById('edit-select').value = id;
   } catch(e) { showMsg('edit-error'); }
   finally { btn.disabled=false; }
 });
@@ -554,27 +575,13 @@ async function refreshDeleteList() {
 }
 
 function renderDeleteList() {
-  const list   = document.getElementById('delete-list');
-  const empty  = document.getElementById('delete-empty');
-  const searchEmpty = document.getElementById('del-search-empty');
-  const prompt = document.getElementById('del-search-prompt');
+  const list  = document.getElementById('delete-list');
+  const empty = document.getElementById('delete-empty');
   const qN = document.getElementById('del-nombre').value.trim().toLowerCase();
   const qP = document.getElementById('del-plataforma').value.trim().toLowerCase();
   const qD = document.getElementById('del-desarrolladora').value.trim().toLowerCase();
   const qG = document.getElementById('del-genero').value.trim().toLowerCase();
   const qC = document.getElementById('del-clasificacion').value.trim().toLowerCase();
-  const hasQuery = !!(qN||qP||qD||qG||qC);
-
-  empty.style.display = allDeleteGames.length ? 'none' : 'block';
-  document.getElementById('btn-delete-all').disabled = !allDeleteGames.length;
-
-  if (!hasQuery) {
-    list.innerHTML = '';
-    searchEmpty.style.display = 'none';
-    prompt.style.display = allDeleteGames.length ? 'block' : 'none';
-    return;
-  }
-  prompt.style.display = 'none';
 
   const filtered = allDeleteGames.filter(g =>
     (!qN || (g.nombre||'').toLowerCase().includes(qN)) &&
@@ -586,23 +593,22 @@ function renderDeleteList() {
 
   if (!filtered.length) {
     list.innerHTML = '';
-    searchEmpty.style.display = 'block';
+    empty.style.display = 'block';
     return;
   }
-  searchEmpty.style.display = 'none';
+  empty.style.display = 'none';
   list.innerHTML = filtered.map(g => `
     <div class="delete-item">
       <div style="flex:1;min-width:0">
-        <div class="di-title">${escapeHtml(g.nombre)}</div>
-        <div class="di-sub">${[g.plataforma, g.desarrolladora].filter(Boolean).map(escapeHtml).join(' · ')} · ${escapeHtml(g.estado||'')}</div>
+        <div class="di-title">${h(g.nombre)}</div>
+        <div class="di-sub">${h([g.plataforma, g.desarrolladora, g.anio].filter(Boolean).join(' · '))} · ${h(g.estado)}</div>
       </div>
-      <button class="btn btn-danger btn-sm" data-del="${g.id}" data-nombre="${escapeHtml(g.nombre)}">
+      <button class="btn btn-danger btn-sm" data-del="${intId(g.id)}" data-nombre="${h(g.nombre)}">
         <i class="ti ti-trash"></i> Eliminar
       </button>
     </div>`).join('');
   list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => {
     pendingDeleteId = btn.dataset.del;
-    pendingDeleteName = btn.dataset.nombre;
     document.getElementById('confirm-text').textContent = `¿Eliminar "${btn.dataset.nombre}" de la colección?`;
     document.getElementById('confirm-dialog').classList.add('show');
   }));
@@ -610,6 +616,16 @@ function renderDeleteList() {
 ['del-nombre','del-plataforma','del-desarrolladora','del-genero','del-clasificacion'].forEach(id =>
   document.getElementById(id).addEventListener('input', renderDeleteList)
 );
+document.getElementById('btn-delete-all').addEventListener('click', async () => {
+  const txt = window.prompt('Se eliminarán TODOS tus juegos (colección y títulos buscados). Esto no se puede deshacer.\n\nTip: antes descarga un respaldo desde tu cuenta.\n\nEscribe ELIMINAR para confirmar:');
+  if (txt !== 'ELIMINAR') return;
+  try {
+    const r = await apiFetch('/juegos', { method:'DELETE', body: JSON.stringify({ confirmar: 'ELIMINAR' }) });
+    allGames = []; 
+    await Promise.all([refreshStats(), refreshDeleteList(), refreshCollection()]);
+    alert('Listo: se eliminaron ' + r.eliminados + ' juegos.');
+  } catch (e) { alert(e.message); }
+});
 document.getElementById('btn-clear-del-filters').addEventListener('click', () => {
   ['del-nombre','del-plataforma','del-desarrolladora','del-genero','del-clasificacion'].forEach(id =>
     document.getElementById(id).value = ''
@@ -617,37 +633,15 @@ document.getElementById('btn-clear-del-filters').addEventListener('click', () =>
   renderDeleteList();
 });
 
-document.getElementById('btn-delete-all').addEventListener('click', () => {
-  if (!allDeleteGames.length) return;
-  pendingDeleteAll = true;
-  document.getElementById('confirm-text').textContent =
-    `¿Eliminar TODOS los juegos (${allDeleteGames.length}) de tu colección? Esta acción no se puede deshacer.`;
-  document.getElementById('confirm-dialog').classList.add('show');
-});
-
 document.getElementById('confirm-cancel').addEventListener('click', () => {
-  document.getElementById('confirm-dialog').classList.remove('show');
-  pendingDeleteId=null; pendingDeleteName=null; pendingDeleteAll=false;
+  document.getElementById('confirm-dialog').classList.remove('show'); pendingDeleteId=null;
 });
 document.getElementById('confirm-ok').addEventListener('click', async ()=>{
-  if (pendingDeleteAll) {
-    const btn = document.getElementById('confirm-ok'); btn.disabled = true;
-    try {
-      const ids = allDeleteGames.map(g => g.id);
-      await Promise.all(ids.map(id => apiFetch('/juegos/'+id, {method:'DELETE'})));
-      document.getElementById('confirm-dialog').classList.remove('show');
-      showToast(`Se eliminaron ${ids.length} juegos de la colección`, 'ti-trash');
-    } catch(_){}
-    pendingDeleteAll = false; btn.disabled = false;
-    refreshStats(); refreshDeleteList();
-    return;
-  }
   if (!pendingDeleteId) return;
   try {
     await apiFetch('/juegos/'+pendingDeleteId,{method:'DELETE'});
     document.getElementById('confirm-dialog').classList.remove('show');
-    showToast(`Se ha eliminado "${escapeHtml(pendingDeleteName)}" de la lista`, 'ti-trash');
-    pendingDeleteId=null; pendingDeleteName=null; refreshStats(); refreshDeleteList();
+    pendingDeleteId=null; refreshStats(); refreshDeleteList();
   } catch(_){}
 });
 
@@ -680,8 +674,8 @@ function renderWishList(juegos) {
   empty.style.display = filtered.length ? 'none' : 'block';
   list.innerHTML = filtered.map(g => `
     <div class="wish-item">
-      <div class="wish-title">${g.plataforma ? `<span class="wish-platform">[${escapeHtml(g.plataforma)}]</span> ` : ''}${escapeHtml(g.nombre)}</div>
-      <button class="wish-remove" data-wi="${g.id}" aria-label="Quitar"><i class="ti ti-x"></i></button>
+      <div class="wish-title">${g.plataforma ? `<span class="wish-platform">[${h(g.plataforma)}]</span> ` : ''}${h(g.nombre)}</div>
+      <button class="wish-remove" data-wi="${intId(g.id)}" aria-label="Quitar"><i class="ti ti-x"></i></button>
     </div>`).join('');
   list.querySelectorAll('[data-wi]').forEach(btn => btn.addEventListener('click', async () => {
     await apiFetch('/juegos/'+btn.dataset.wi, {method:'DELETE'});
@@ -704,7 +698,7 @@ document.getElementById('btn-wish-add').addEventListener('click', async ()=>{
   if (!val) { showMsg('wish-error'); return; }
   try {
     const plat = document.getElementById('wish-plataforma').value.trim() || null;
-    await apiFetch('/juegos',{method:'POST',body:JSON.stringify({nombre:val,plataforma:plat,estado:'no terminado',posesion:'buscado'})});
+    await apiFetch('/juegos',{method:'POST',body:JSON.stringify({nombre:val,plataforma:plat,estado:'pendiente',posesion:'buscado'})});
     document.getElementById('wish-input').value='';
     document.getElementById('wish-plataforma').value='';
     refreshWishList(); refreshStats();
@@ -729,136 +723,101 @@ document.getElementById('file-import').addEventListener('change', async (e) => {
   importRows = [];
 
   try {
-    if (typeof XLSX === 'undefined') {
-      throw new Error(
-        'La librería de importación (SheetJS) no está disponible. ' +
-        'Recarga la página. Si el problema persiste, verifica tu conexión a internet.'
-      );
+    const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    const isZip = head[0] === 0x50 && head[1] === 0x4B;          // .xlsx = ZIP
+    const isOle = head[0] === 0xD0 && head[1] === 0xCF;          // .xls antiguo
+    if (isOle || (/\.xls$/i.test(file.name) && !isZip))
+      throw new Error('El formato .xls antiguo no es compatible. En Excel usa Guardar como → Libro de Excel (.xlsx) y vuelve a intentarlo.');
+    if (isZip) {
+      // ── Excel (.xlsx): todas las hojas de una vez ──
+      const sheets = await window.readXlsx(await file.arrayBuffer());
+      const res = window.GVNormalize.fromSheets(sheets);
+      if (!res.juegos.length) throw new Error('No se encontraron juegos. Cada hoja debe tener un encabezado con la columna "Nombre".');
+      await loadAllGames();
+      const key = g => (g.nombre||'').trim().toLowerCase() + '|' + (g.plataforma||'').trim().toLowerCase();
+      const existentes = new Set(allGames.map(key));
+      const nuevos = res.juegos.filter(g => !existentes.has(key(g)));
+      const repetidos = res.juegos.length - nuevos.length;
+      if (!nuevos.length) throw new Error('Los ' + res.juegos.length + ' juegos del archivo ya están en tu colección.');
+      importRows = nuevos;
+      const fieldsX = ['nombre','plataforma','desarrolladora','anio','genero','clasificacion','num_jugadores','estado','region','contenido','exclusividad','pila','nota'];
+      const tableX = `<table class="oracle-table" style="font-size:11px">
+        <thead><tr>${fieldsX.map(f => `<th>${h(f.toUpperCase())}</th>`).join('')}</tr></thead>
+        <tbody>${nuevos.slice(0,10).map(r => `<tr>${fieldsX.map(f => `<td>${r[f] != null && r[f] !== '' ? h(r[f]) : '<span style="color:#444">(null)</span>'}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>${nuevos.length > 10 ? `<p style="font-size:11px;color:#6b6b8a;margin-top:6px">... y ${nuevos.length-10} más</p>` : ''}`;
+      document.getElementById('import-table-wrap').innerHTML = tableX;
+      let resumen = `${nuevos.length} juego${nuevos.length!==1?'s':''} nuevo${nuevos.length!==1?'s':''} en ${res.hojas.length} hoja${res.hojas.length!==1?'s':''}: ` +
+        res.hojas.map(x => `${x.name} (${x.count})`).join(', ');
+      if (repetidos) resumen += ` · ${repetidos} ya existían y se omiten`;
+      if (res.omitidas.length) resumen += ` · hojas ignoradas: ${res.omitidas.join(', ')}`;
+      if (res.avisos.length) resumen += ` · ${res.avisos.length} aviso(s): ` + res.avisos.slice(0,3).join('; ') + (res.avisos.length > 3 ? '…' : '');
+      document.getElementById('import-count').textContent = resumen;
+      document.getElementById('import-preview').style.display = 'block';
+      const cb = document.getElementById('import-confirm-btn');
+      cb.innerHTML = `<i class="ti ti-upload"></i> Importar ${nuevos.length} juegos`;
+      cb.style.display = 'inline-flex';
+      e.target.value = '';
+      return;
+    }
+    const text = (await file.text()).replace(/^\uFEFF/, '');
+    const lines = text.replace(/\r/g,'').split('\n').filter(l => l.trim());
+    if (lines.length < 2) throw new Error('El archivo debe tener al menos una fila de datos además del encabezado.');
+
+    const fields = ['nombre','plataforma','desarrolladora','anio','genero','clasificacion','num_jugadores','estado','region','contenido','exclusividad','pila','nota'];
+
+    // Delimitador: ; o ,
+    const delim = ((lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length) ? ';' : ',';
+    // Parse CSV (simple, maneja comillas)
+    function parseLine(line) {
+      const vals = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { inQ = !inQ; }
+        else if (c === delim && !inQ) { vals.push(cur.trim()); cur = ''; }
+        else cur += c;
+      }
+      vals.push(cur.trim());
+      return vals;
     }
 
-    const buffer = await file.arrayBuffer();
+    // Mapear columnas por el nombre del encabezado (si se reconoce), si no por orden
+    const ALIAS = { nombre:['nombre','titulo','título'], plataforma:['plataforma','consola'], desarrolladora:['desarrolladora','empresa'],
+      anio:['anio','año'], genero:['genero','género','tipo'], clasificacion:['clasificacion','clasificación'],
+      num_jugadores:['num_jugadores','n_jugadores','jugadores','n° jugadores'], estado:['estado','progreso'], region:['region','región'],
+      contenido:['contenido'], exclusividad:['exclusividad'], pila:['pila'], nota:['nota','nota ign'] };
+    const headerCells = parseLine(lines[0]).map(x => x.toLowerCase().trim());
+    const idx = {};
+    fields.forEach(f => { const i = headerCells.findIndex(c => ALIAS[f].includes(c)); if (i >= 0) idx[f] = i; });
+    const byName = Object.keys(idx).length >= 2 && idx.nombre !== undefined;
+    const rows = lines.slice(1).map(l => {
+      const vals = parseLine(l);
+      const obj = {};
+      fields.forEach((f, i) => { const j = byName ? idx[f] : i; obj[f] = (j !== undefined && vals[j]) ? vals[j] : null; });
+      return obj;
+    }).filter(r => r.nombre);
 
-    const workbook = XLSX.read(buffer, {
-      type: 'array',
-      cellText: true,
-      raw: false,
-      codepage: 1252,
-    });
+    if (!rows.length) throw new Error('No se encontraron filas con datos válidos.');
 
-    if (!workbook.SheetNames.length) throw new Error('El archivo no contiene hojas de datos.');
+    importRows = rows;
 
-    const normalizeHeader = s => (s || '').toString().toLowerCase().trim()
-      .replace(/[áàäâã]/g, 'a').replace(/[éèëê]/g, 'e')
-      .replace(/[íìïî]/g,  'i').replace(/[óòöôõ]/g, 'o')
-      .replace(/[úùüû]/g,  'u').replace(/ñ/g, 'n')
-      .replace(/[º°]/g, '')
-      .replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-
-    // La plataforma se lee del nombre de la hoja, no de una columna
-    const fields = [
-      'nombre', 'num_jugadores', 'desarrolladora', 'genero',
-      'contenido', 'clasificacion', 'estado', 'region', 'exclusividad'
-    ];
-
-    // NOTA: las columnas "contenido" y "estado" de la tabla se muestran en la UI
-    // como "Estado" y "Progreso" respectivamente (relabel), por lo que un encabezado
-    // de hoja literalmente llamado "ESTADO" (ver texto de instrucciones de importación)
-    // debe mapear a la columna `contenido`, y "PROGRESO" debe mapear a la columna `estado`.
-    const fieldAliases = {
-      nombre:         ['nombre', 'name', 'titulo', 'title', 'juego', 'game'],
-      num_jugadores:  ['num_jugadores', 'jugadores', 'players', 'numjugadores', 'numero_jugadores',
-                        'n_jugadores', 'n_de_jugadores', 'no_jugadores', 'jugadores_max', 'multijugador'],
-      desarrolladora: ['desarrolladora', 'desarrollador', 'developer', 'dev', 'estudio', 'studio',
-                        'compania', 'empresa', 'empresa_desarrolladora'],
-      genero:         ['genero', 'genre', 'categoria', 'category', 'tipo'],
-      contenido:      ['estado', 'contenido', 'content', 'notas', 'notes', 'descripcion'],
-      clasificacion:  ['clasificacion', 'rating', 'pegi', 'esrb', 'clasificacion_edad',
-                        'clasificacion_por_edad', 'edad', 'pegi_esrb'],
-      estado:         ['progreso', 'progress', 'status', 'completado', 'completion'],
-      region:         ['region', 'zona', 'area', 'market'],
-      exclusividad:   ['exclusividad', 'exclusivity', 'exclusivo']
-    };
-
-    const allRows = [];
-
-    for (const sheetName of workbook.SheetNames) {
-      const sheet = workbook.Sheets[sheetName];
-      const rawRows = XLSX.utils.sheet_to_json(sheet, {
-        header: 1,
-        defval: null,
-        blankrows: false,
-      });
-      if (!rawRows || rawRows.length < 2) continue; // hoja vacía o sin filas de datos
-
-      const headerRow = rawRows[0].map(normalizeHeader);
-      const colMap = {};
-      headerRow.forEach((h, i) => {
-        for (const [field, aliases] of Object.entries(fieldAliases)) {
-          if (aliases.includes(h)) { colMap[i] = field; break; }
-        }
-      });
-
-      const hasHeaders = Object.keys(colMap).length >= 3;
-
-      // Si la hoja no tiene al menos 3 encabezados reconocidos, solo se recurre al mapeo
-      // posicional (asumir el orden fijo de columnas) cuando la fila de encabezado tiene
-      // casi tantas columnas como el esquema esperado. Esto evita que una hoja ajena al
-      // esquema de juegos (p. ej. una hoja "Total"/resumen con solo 2 columnas del tipo
-      // "Plataforma, Cantidad") se importe como si fueran juegos con datos desalineados
-      // (el nombre de la plataforma terminaría como NOMBRE y el conteo como NUM_JUGADORES).
-      const canUsePositionalFallback = headerRow.length >= fields.length - 2;
-      if (!hasHeaders && !canUsePositionalFallback) continue; // hoja no reconocida como datos de juegos, se omite
-
-      const sheetRows = rawRows.slice(1).map(rowArr => {
-        const obj = {};
-        if (hasHeaders) {
-          rowArr.forEach((v, i) => {
-            if (colMap[i]) {
-              obj[colMap[i]] = (v !== null && v !== undefined && v !== '') ? String(v).trim() : null;
-            }
-          });
-        } else {
-          fields.forEach((f, i) => {
-            const v = rowArr[i];
-            obj[f] = (v !== null && v !== undefined && v !== '') ? String(v).trim() : null;
-          });
-        }
-        obj.plataforma = sheetName.trim() || null;
-        return obj;
-      }).filter(r => r.nombre && r.nombre.trim() !== '');
-
-      allRows.push(...sheetRows);
-    }
-
-    if (!allRows.length) {
-      throw new Error(
-        'No se encontraron filas con datos válidos en ninguna hoja. ' +
-        'Verifica que cada hoja tenga una fila de encabezado con los nombres de columna ' +
-        'y al menos una fila de datos con el campo "NOMBRE" o "nombre" completado.'
-      );
-    }
-
-    importRows = allRows;
-
-    const previewFields = ['plataforma', ...fields];
+    // Preview
     const tableHtml = `<table class="oracle-table" style="font-size:11px">
-      <thead><tr>${previewFields.map(f => `<th>${f.toUpperCase()}</th>`).join('')}</tr></thead>
-      <tbody>${allRows.slice(0, 10).map(r =>
-        `<tr>${previewFields.map(f => `<td>${r[f] ? escapeHtml(r[f]) : '<span style="color:#444">(null)</span>'}</td>`).join('')}</tr>`
-      ).join('')}</tbody>
-    </table>${allRows.length > 10 ? `<p style="font-size:11px;color:#6b6b8a;margin-top:6px">... y ${allRows.length - 10} más</p>` : ''}`;
+      <thead><tr>${fields.map(f => `<th>${h(f.toUpperCase())}</th>`).join('')}</tr></thead>
+      <tbody>${rows.slice(0,10).map(r => `<tr>${fields.map(f => `<td>${r[f] ? h(r[f]) : '<span style="color:#444">(null)</span>'}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>${rows.length > 10 ? `<p style="font-size:11px;color:#6b6b8a;margin-top:6px">... y ${rows.length-10} más</p>` : ''}`;
 
     document.getElementById('import-table-wrap').innerHTML = tableHtml;
-    document.getElementById('import-count').textContent = `${allRows.length} juego${allRows.length !== 1 ? 's' : ''} detectado${allRows.length !== 1 ? 's' : ''}`;
+    document.getElementById('import-count').textContent = `${rows.length} juego${rows.length!==1?'s':''} detectado${rows.length!==1?'s':''}`;
     document.getElementById('import-preview').style.display = 'block';
-    document.getElementById('import-btn-count').textContent = allRows.length;
-    document.getElementById('import-confirm-btn').style.display = 'inline-flex';
-
-  } catch (err) {
+    const cbtn = document.getElementById('import-confirm-btn');
+    cbtn.innerHTML = `<i class="ti ti-upload"></i> Importar ${rows.length} juegos`;
+    cbtn.style.display = 'inline-flex';
+  } catch(err) {
     document.getElementById('import-error-text').textContent = err.message;
     document.getElementById('import-error').classList.add('show');
   }
-  e.target.value = '';
+  e.target.value = ''; // reset input
 });
 
 document.getElementById('import-confirm-btn').addEventListener('click', async () => {
@@ -866,15 +825,21 @@ document.getElementById('import-confirm-btn').addEventListener('click', async ()
   const btn = document.getElementById('import-confirm-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2"></i> Importando...';
-  // Un solo request: el servidor inserta todo en una transacción (todo o nada)
-  let ok = 0, fail = importRows.length;
+  let ok = 0, fail = 0;
   try {
-    const res = await fetch('/api/juegos/bulk', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ juegos: importRows.map(r => ({ ...r, posesion:'coleccion' })) }) });
-    if (res.ok) { const data = await res.json(); ok = data.importados; fail = data.omitidos; }
-  } catch(_) {}
+    const payload = importRows.map(row => ({ ...row, posesion: 'coleccion' }));
+    const res = await fetch('/api/backup/restore', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ juegos: payload }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al importar');
+    ok = data.importados; fail = data.omitidos;
+  } catch (err) {
+    fail = importRows.length;
+    document.getElementById('import-error-text').textContent = err.message;
+    document.getElementById('import-error').classList.add('show');
+  }
   btn.disabled = false;
-  btn.innerHTML = `<i class="ti ti-upload"></i> Importar ${importRows.length} juegos`;
+  btn.innerHTML = '<i class="ti ti-upload"></i> Importar';
   const succEl = document.getElementById('import-success-text');
   succEl.textContent = `${ok} juego${ok!==1?'s':''} importado${ok!==1?'s':''}${fail ? ` (${fail} con error)` : ''}.`;
   document.getElementById('import-success').classList.add('show');
@@ -918,23 +883,25 @@ function renderAmigos() {
   solSec.style.display = recibidas.length ? 'block' : 'none';
   solList.innerHTML = recibidas.map(a => `
     <div class="solicitud-card">
-      <div class="solicitud-nombre">${escapeHtml(a.usuario.nombre)} <span style="color:#7c4dff">@${escapeHtml(a.usuario.username||'')}</span></div>
+      <div class="solicitud-nombre">${h(a.usuario.nombre)} <span style="color:#7c4dff">@${h(a.usuario.username||'')}</span></div>
       <div class="solicitud-btns">
-        <button class="btn btn-success btn-sm" onclick="responderSolicitud(${a.amistad_id},'aceptar')"><i class="ti ti-check"></i> Aceptar</button>
-        <button class="btn btn-danger btn-sm"  onclick="responderSolicitud(${a.amistad_id},'rechazar')"><i class="ti ti-x"></i> Rechazar</button>
+        <button class="btn btn-success btn-sm" data-resp="${intId(a.amistad_id)}" data-accion="aceptar"><i class="ti ti-check"></i> Aceptar</button>
+        <button class="btn btn-danger btn-sm"  data-resp="${intId(a.amistad_id)}" data-accion="rechazar"><i class="ti ti-x"></i> Rechazar</button>
       </div>
     </div>`).join('');
+  solList.querySelectorAll('[data-resp]').forEach(b => b.addEventListener('click', () =>
+    responderSolicitud(Number(b.dataset.resp), b.dataset.accion)));
 
   // Amigos aceptados
   if (!aceptados.length && !enviadas.length) {
     list.innerHTML = '<div class="empty-state" style="padding:1.5rem 0"><i class="ti ti-user-plus" style="font-size:32px"></i><p>Aún no tienes amigos.<br>¡Busca por username!</p></div>';
   } else {
     list.innerHTML = aceptados.map(a => `
-      <div class="amigo-card ${amigoSeleccionado?.amistad_id === a.amistad_id ? 'active' : ''}" onclick="seleccionarAmigo(${a.amistad_id})">
-        ${a.usuario.avatar ? `<img src="${escapeHtml(a.usuario.avatar)}" class="user-avatar" style="width:32px;height:32px" />` : `<i class="ti ti-user-circle" style="font-size:28px;color:var(--am)"></i>`}
+      <div class="amigo-card ${amigoSeleccionado?.amistad_id === a.amistad_id ? 'active' : ''}" data-amistad="${intId(a.amistad_id)}">
+        ${safeUrl(a.usuario.avatar) ? `<img src="${h(safeUrl(a.usuario.avatar))}" class="user-avatar" style="width:32px;height:32px" />` : `<i class="ti ti-user-circle" style="font-size:28px;color:var(--am)"></i>`}
         <div class="amigo-card-info">
-          <div class="amigo-card-nombre">${escapeHtml(a.usuario.nombre)}</div>
-          <div class="amigo-card-username">@${escapeHtml(a.usuario.username||'sin username')}</div>
+          <div class="amigo-card-nombre">${h(a.usuario.nombre)}</div>
+          <div class="amigo-card-username">@${h(a.usuario.username||'sin username')}</div>
         </div>
       </div>`).join('') +
     (enviadas.length ? `<div style="font-size:11px;color:var(--am);margin-top:0.75rem;letter-spacing:1px">PENDIENTES ENVIADAS</div>` +
@@ -942,10 +909,12 @@ function renderAmigos() {
         <div class="amigo-card" style="opacity:0.6;cursor:default">
           <i class="ti ti-clock" style="font-size:20px;color:var(--am)"></i>
           <div class="amigo-card-info">
-            <div class="amigo-card-nombre">${escapeHtml(a.usuario.nombre)}</div>
-            <div class="amigo-card-username">@${escapeHtml(a.usuario.username||'')} · Solicitud enviada</div>
+            <div class="amigo-card-nombre">${h(a.usuario.nombre)}</div>
+            <div class="amigo-card-username">@${h(a.usuario.username||'')} · Solicitud enviada</div>
           </div>
         </div>`).join('') : '');
+    list.querySelectorAll('[data-amistad]').forEach(c => c.addEventListener('click', () =>
+      seleccionarAmigo(Number(c.dataset.amistad))));
   }
 }
 
@@ -967,7 +936,7 @@ async function seleccionarAmigo(amistad_id) {
   document.getElementById('amigo-detalle-nombre').textContent   = u.nombre;
   document.getElementById('amigo-detalle-username').textContent = '@' + (u.username || '');
   const av = document.getElementById('amigo-avatar');
-  if (u.avatar) { av.src = u.avatar; av.style.display = 'block'; } else av.style.display = 'none';
+  if (safeUrl(u.avatar)) { av.src = safeUrl(u.avatar); av.style.display = 'block'; } else av.style.display = 'none';
   document.getElementById('priv-amigo-nombre').textContent = u.nombre;
   // Load data
   await loadAmigoColeccion(amigo.amigo_id);
@@ -988,13 +957,13 @@ async function loadAmigoColeccion(amigo_id) {
         juegos.forEach(g => { const k = g.plataforma||'Sin plataforma'; if(!byPlat[k])byPlat[k]=[]; byPlat[k].push(g); });
         colView.innerHTML = Object.keys(byPlat).sort().map(plat => `
           <div class="platform-section">
-            <div class="platform-header"><i class="ti ti-device-gamepad"></i><span class="platform-name">${escapeHtml(plat)}</span><span class="platform-count">${byPlat[plat].length} juego${byPlat[plat].length!==1?'s':''}</span></div>
+            <div class="platform-header"><i class="ti ti-device-gamepad"></i><span class="platform-name">${h(plat)}</span><span class="platform-count">${byPlat[plat].length} juego${byPlat[plat].length!==1?'s':''}</span></div>
             <div class="games-grid">${byPlat[plat].map(g=>`
               <div class="game-card">
-                <div class="dot ${{'terminado':'s-completado','jugando':'s-jugando','no terminado':'s-pendiente','abandonado':'s-abandonado'}[(g.estado||'').toLowerCase()]||'s-pendiente'}"></div>
-                <div class="game-card-title">${escapeHtml(g.nombre)}</div>
-                ${g.genero?`<div class="game-card-meta">${escapeHtml(g.genero)}</div>`:''}
-                ${g.desarrolladora?`<div class="game-card-dev"><i class="ti ti-building-factory-2"></i> ${escapeHtml(g.desarrolladora)}</div>`:''}
+                <div class="dot ${{'completado':'s-completado','jugando':'s-jugando','pendiente':'s-pendiente','abandonado':'s-abandonado'}[estadoKey(g.estado)]||'s-pendiente'}"></div>
+                <div class="game-card-title">${h(g.nombre)}</div>
+                ${g.genero?`<div class="game-card-meta">${h(g.genero)}</div>`:''}
+                ${g.desarrolladora?`<div class="game-card-dev"><i class="ti ti-building-factory-2"></i> ${h(g.desarrolladora)}</div>`:''}
               </div>`).join('')}</div>
           </div>`).join('');
       }
@@ -1008,8 +977,8 @@ async function loadAmigoColeccion(amigo_id) {
       else jugView.innerHTML = '<div class="games-grid">' + juegos.map(g=>`
         <div class="game-card">
           <span class="badge-jugando" style="position:absolute;top:8px;right:8px">Jugando</span>
-          <div class="game-card-title" style="padding-right:70px">${escapeHtml(g.nombre)}</div>
-          ${g.plataforma?`<div class="game-card-meta">${escapeHtml(g.plataforma)}</div>`:''}
+          <div class="game-card-title" style="padding-right:70px">${h(g.nombre)}</div>
+          ${g.plataforma?`<div class="game-card-meta">${h(g.plataforma)}</div>`:''}
         </div>`).join('') + '</div>';
     } else jugView.innerHTML = '<div class="priv-locked"><i class="ti ti-lock"></i>Este amigo no comparte lo que está jugando.</div>';
 
@@ -1021,7 +990,7 @@ async function loadAmigoColeccion(amigo_id) {
       else busView.innerHTML = '<div class="wish-list">' + juegos.map((g,i)=>`
         <div class="wish-item">
           <div class="wish-num">${String(i+1).padStart(2,'0')}</div>
-          <div class="wish-title">${g.plataforma?`<span class="wish-platform">[${escapeHtml(g.plataforma)}]</span> `:''}${escapeHtml(g.nombre)}</div>
+          <div class="wish-title">${g.plataforma?`<span class="wish-platform">[${h(g.plataforma)}]</span> `:''}${h(g.nombre)}</div>
         </div>`).join('') + '</div>';
     } else busView.innerHTML = '<div class="priv-locked"><i class="ti ti-lock"></i>Este amigo no comparte sus títulos buscados.</div>';
 
@@ -1050,14 +1019,16 @@ document.getElementById('btn-amigo-search').addEventListener('click', async () =
     const yaAmigo = amigosData.find(a => a.amigo_id === u.id);
     return `<div class="search-result-card">
       <div class="search-result-info">
-        <div style="font-family:Orbitron,monospace;font-size:12px;color:var(--at)">${escapeHtml(u.nombre)}</div>
-        <div style="font-size:11px;color:#7c4dff">@${escapeHtml(u.username||'sin username')}</div>
+        <div style="font-family:Orbitron,monospace;font-size:12px;color:var(--at)">${h(u.nombre)}</div>
+        <div style="font-size:11px;color:#7c4dff">@${h(u.username||'sin username')}</div>
       </div>
       ${yaAmigo
         ? `<span style="font-size:11px;color:var(--am)">${yaAmigo.estado === 'aceptada' ? 'Ya son amigos' : 'Solicitud pendiente'}</span>`
-        : `<button class="btn btn-primary btn-sm" onclick="enviarSolicitud(${u.id})"><i class="ti ti-user-plus"></i> Agregar</button>`}
+        : `<button class="btn btn-primary btn-sm" data-solicitar="${intId(u.id)}"><i class="ti ti-user-plus"></i> Agregar</button>`}
     </div>`;
   }).join('');
+  div.querySelectorAll('[data-solicitar]').forEach(b => b.addEventListener('click', () =>
+    enviarSolicitud(Number(b.dataset.solicitar))));
 });
 document.getElementById('amigo-search-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-amigo-search').click();
@@ -1149,9 +1120,8 @@ document.getElementById('file-backup-restore').addEventListener('change', async 
   const file = e.target.files[0];
   if (!file) return;
   try {
-    const buffer = await file.arrayBuffer();
-    const text   = new TextDecoder('utf-8').decode(new Uint8Array(buffer)).replace(/^﻿/, '');
-    const data   = JSON.parse(text);
+    const text = await file.text();
+    const data = JSON.parse(text);
     if (!data.juegos || !Array.isArray(data.juegos)) throw new Error('Formato de backup inválido');
     if (!confirm(`¿Restaurar ${data.juegos.length} juegos? Se agregarán a tu colección actual sin borrar los existentes.`)) return;
     const res  = await fetch('/api/backup/restore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ juegos: data.juegos }) });

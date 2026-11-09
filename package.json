@@ -4,7 +4,7 @@
   "description": "Gestor de colección de videojuegos",
   "main": "server.js",
   "scripts": {
-    "start": "node --watch server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.3",
